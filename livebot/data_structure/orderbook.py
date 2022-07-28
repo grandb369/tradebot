@@ -1,10 +1,11 @@
 import asyncio
 
 class OrderBook:
-    def __init__(self, keywords, logger=None):
+    async def __init__(self, keywords, logger=None):
         self.keywords = keywords
         self.orderbook = {}
         self.logger = logger
+        await self.clear()
         
     async def clear(self):
         self.orderbook = {key: -1 for key in self.keywords}
