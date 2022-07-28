@@ -5,10 +5,9 @@ class BaseParamsManager:
         self.params = {}
         self.keywords = keywords
         self.logger = logger
-        await self.clear()
     
     async def clear(self):
-        self.params = {key: -1 for key in self.keywords}
+        self.params = {}
         if self.logger:
             self.logger.info("Params cleared")
     
