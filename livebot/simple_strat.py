@@ -1,5 +1,6 @@
 from binance.client import Client
 from binance import BinanceSocketManager
+from sympy import re
 
 from data_structure.orderbook import Orderbook
 from data_structure.client_params import ClientParams
@@ -85,3 +86,47 @@ async def order_filled_socket(client, symbol, logger, err, orderbook, params):
                             pnl = pos['up']
                             await params.update_param("posAmt", posAmt)
                             await params.update_param("pnl", pnl)
+        logger.info("order_filled_socket: socket closed")
+
+
+async def market_data_socket(client, symbol, logger, err, orderbook, params):
+    bsm = BinanceSocketManager(client)
+    orderboom_stream = symbol.lower()+'@bookTicker'
+
+    keepalive = 60*50
+    timer = time.time()
+
+    price_timer = time.time()
+
+    async with bsm._get_socket(orderboom_stream)as stream:
+        while True:
+            if time.time() - timer > keep_alive:
+                keep_alive = time.time()
+                listen_key = await stream.get_listen_key()
+                res = await client.keep_alive(listen_key)
+                logger.info(
+                    "Keep alive: {}, Listen Key: {}".format(res, listen_key))
+            if err.status:
+                await stream.close()
+                await bsm.stop()
+                await logger.err("market_data_socket: socket closed")
+                break
+            try:
+                res = await stream.recv()
+            except Exception as e:
+                await logger.err("market_data_socket: {}".format(e))
+                continue
+            else:
+                if 'stream' in res and res['stream'] == orderboom_stream and 'data' in res:
+                    data = res['data']
+                    bid, ask = float(res['b']), float(res['a'])
+
+                    temp_orderbook = {'bid': bid, 'ask': ask}
+                    if price_timer+1 <= time.time():
+                        # further indicator calculation
+                        price_timer = time.time()
+                    orderbook.updates(temp_orderbook)
+                elif response['e'] == 'error':
+                    await logger.err("market_data_socket: {}".format(res))
+                    err.status = True
+        print("market_data_socket: socket closed")
