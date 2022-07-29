@@ -23,6 +23,48 @@ async def create_client(api_key, api_secret, url):
     return client
 
 
+async def execute_order(
+    client,
+    symbol,
+    side,
+    order_type,
+    amount,
+    price,
+    precision,
+    params,
+    is_stop_loss_order=False,
+    is_take_profit_order=False,
+    pre_order_id=-1
+    timeInForce='GTC'
+):
+    price = round(price, precision)
+    if order_type == LIMIT:
+        res = await client.create_order(
+            symbol=symbol,
+            side=side,
+            type=order_type,
+            timeInForce=timeInForce,
+            quantity=amount,
+            price=price
+        )
+        order_id = res['orderId']
+
+        regular_orders = await params.get_param("regular_orders")
+        take_profit_orders = await params.get_param("take_profit_orders")
+        stoploss_orders = await params.get_param("stoploss_orders")
+        if is_stop_loss_order:
+            stoploss_orders[order_id] = pre_order_id
+            stoploss_orders[pre_order_id] = order_id
+            await params.update_param("stoploss_orders", stoploss_orders)
+        elif is_take_profit_order:
+            take_profit_orders[order_id] = pre_order_id
+            take_profit_orders[pre_order_id] = order_id
+            await params.update_param("take_profit_orders", take_profit_orders)
+        else:
+            regular_orders.add(order_id)
+            await params.update_param("regular_orders", regular_orders)
+
+
 async def order_filled_socket(client, symbol, logger, err, orderbook, params):
     bsm = BinanceSocketManager(client)
     timer = time.time()
@@ -129,25 +171,23 @@ async def regular_order_stream(client, symbol, logger, err, orderbook, params):
             await logger.info("Regular Order: best_bid: {}, best_ask: {}".format(best_bid, best_ask))
             # BID
             await execute_order(
-                client,
-                symbol,
-                BUY,
-                LIMIT,
-                amount,
-                best_bid,
-                precision,
-                BID
+                client=client,
+                symbol=symbol,
+                side=BUY,
+                order_type=LIMIT,
+                amount=amount,
+                price=best_bid,
+                precision=precision,
             )
             # ASK
             await execute_order(
-                client,
-                symbol,
-                SELL,
-                LIMIT,
-                amount,
-                best_ask,
-                precision,
-                ASK
+                client=client,
+                symbol=symbol,
+                side=SELL,
+                order_type=LIMIT,
+                amount=amount,
+                price=best_ask,
+                precision=precision,
             )
             timer = time.time()
         await asyncio.sleep(1)
