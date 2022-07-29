@@ -36,7 +36,7 @@ async def execute_order(
     logger,
     is_stop_loss_order=False,
     is_take_profit_order=False,
-    pre_order_id=-1
+    pre_order_id=-1,
     timeInForce='GTC'
 ):
     price = round(price, precision)
