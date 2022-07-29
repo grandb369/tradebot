@@ -119,14 +119,14 @@ async def market_data_socket(client, symbol, logger, err, orderbook, params):
             else:
                 if 'stream' in res and res['stream'] == orderboom_stream and 'data' in res:
                     data = res['data']
-                    bid, ask = float(res['b']), float(res['a'])
+                    bid, ask = float(data['b']), float(data['a'])
 
                     temp_orderbook = {'bid': bid, 'ask': ask}
                     if price_timer+1 <= time.time():
                         # further indicator calculation
                         price_timer = time.time()
                     orderbook.updates(temp_orderbook)
-                elif response['e'] == 'error':
+                elif res['e'] == 'error':
                     await logger.err("market_data_socket: {}".format(res))
                     err.status = True
         print("market_data_socket: socket closed")
