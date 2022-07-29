@@ -134,6 +134,66 @@ async def send_stop_loss_order(client, symbol, logger, err, orderbook, params, o
             pre_order_id = order_id
         )
 
+async def cancel_order(client, symbol, logger, params, order_id):
+    try:
+        await client.cancel_order(symbol = symbol, orderId = order_id)
+    except Exception as e:
+        await logger.error("Error cancelling order: {}".format(e))
+    else:
+        regular_orders=await params.get_param("regular_orders")
+        regular_orders.remove(order_id)
+        await params.update_param("regular_orders", regular_orders)
+        await logger.info("Cancelled order: {}".format(order_id))
+
+async def cancel_stoploss_order(client, symbol, logger, params, order_id):
+    try:
+        await client.cancel_order(symbol = symbol, orderId = order_id)
+    except Exception as e:
+        await logger.error("Error cancelling order: {}".format(e))
+    else:
+        stoploss_orders=await params.get_param("stoploss_orders")
+        prev_id=stoploss_orders[order_id]
+        del stoploss_orders[order_id]
+        del stoploss_orders[prev_id]
+        await params.update_param("stoploss_orders", stoploss_orders)
+        await logger.info("Cancelled order: {}".format(order_id))
+
+async def cancel_take_profit_order(client, symbol, logger, params, order_id):
+    try:
+        await client.cancel_order(symbol = symbol, orderId = order_id)
+    except Exception as e:
+        await logger.error("Error cancelling order: {}".format(e))
+    else:
+        take_profit_orders=await params.get_param("take_profit_orders")
+        prev_id=take_profit_orders[order_id]
+        del take_profit_orders[order_id]
+        del take_profit_orders[prev_id]
+        await params.update_param("take_profit_orders", take_profit_orders)
+        await logger.info("Cancelled order: {}".format(order_id))
+
+async def cancel_all_unfilled_orders(client, symbol, logger, params):
+    regular_orders=await params.get_param("regular_orders")
+    for order_id in list(regular_orders):
+        await cancel_order(client, symbol, logger, params, order_id)
+
+async def close_open_orders(client, symbol, logger, params):
+    orders=await client.futures_get_open_orders(symbol = symbol)
+    for order in orders:
+    if order["status"] == "NEW" or order["status"] == "PARTIALLY_FILLED":
+        try:
+            await client.cancel_order(symbol = symbol, orderId = order["orderId"])
+        except Exception as e:
+            await logger.error("Error cancelling order: {}".format(e))
+    await params.update_param("regular_orders", set())
+    await params.update_param("stoploss_orders", {})
+    await params.update_param("take_profit_orders", {})
+
+async def close_position(client, symbol, logger, params):
+    position=await client.get_position(symbol = symbol)
+    if position:
+        await client.close_position(symbol = symbol)
+        await logger.info("Closed position: {}".format(position["id"]))
+
 async def order_filled_socket(client, symbol, logger, err, orderbook, params):
     bsm=BinanceSocketManager(client)
     timer=time.time()
@@ -184,7 +244,7 @@ async def order_filled_socket(client, symbol, logger, err, orderbook, params):
                             del take_profit_orders[order_id]
                             del take_profit_orders[prev_id]
 
-                            await cancel_stoploss_order(client, symbol, logger, err, orderbook, params, st_id)
+                            await cancel_stoploss_order(client, symbol, logger, params, st_id)
                         elif order in stoploss_orders:
                             await logger.info("Stop Loss Order Filled: id: {}, side: {}, filled_qty: {}, fill_price: {}".format(order_id, side, filled_qty, fill_price))
                             prev_id=stoploss_orders[order_id]
@@ -192,7 +252,7 @@ async def order_filled_socket(client, symbol, logger, err, orderbook, params):
                             del stoploss_orders[order_id]
                             del stoploss_orders[prev_id]
 
-                            await cancel_take_profit_order(client, symbol, logger, err, orderbook, params, tp_id)
+                            await cancel_take_profit_order(client, symbol, logger, params, tp_id)
                         else:
                             await logger.err("Unknow Order Filled: id: {}, side: {}, filled_qty: {}, fill_price: {}".format(order_id, side, filled_qty, fill_price))
                             print("Unknow Order Filled: id: {}, side: {}, filled_qty: {}, fill_price: {}".format(
@@ -223,12 +283,12 @@ async def regular_order_stream(client, symbol, logger, err, orderbook, params):
         if err.status:
             await logger.err("regular_order_stream: terminated")
             if enable_close_open_orders:
-                await cancel_all_orders(client, symbol, logger, err, orderbook, params)
+                await close_open_orders(client, symbol, logger, params)
             if enable_close_position:
-                await close_position(client, symbol, logger, err, orderbook, params)
+                await close_position(client, symbol, logger, params)
             break
         if time.time() - timer > order_interval or len(await params.get_param("regular_orders")) < max_order:
-            await cancel_all_unfilled_orders(client, symbol, logger, err, orderbook, params)
+            await cancel_all_unfilled_orders(client, symbol, logger, params)
             best_bid=await orderbook.get('bid')
             best_ask=await orderbook.get('ask')
             amount=await orderbook.get("amount")
