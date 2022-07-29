@@ -7,6 +7,14 @@ from data_structure.client_params import ClientParams
 
 import asyncio
 import time
+import datetime
+
+SELL = 'sell'
+BUY = 'BUY'
+LIMIT = 'LIMIT'
+MARKET = 'MARKET'
+BID = 'bid'
+ASK = 'ask'
 
 
 async def create_client(api_key, api_secret, url):
@@ -89,44 +97,58 @@ async def order_filled_socket(client, symbol, logger, err, orderbook, params):
         logger.info("order_filled_socket: socket closed")
 
 
-async def market_data_socket(client, symbol, logger, err, orderbook, params):
-    bsm = BinanceSocketManager(client)
-    orderboom_stream = symbol.lower()+'@bookTicker'
+async def regular_order_stream(client, symbol, logger, err, orderbook, params):
+    await logger.info("regular_order_stream: started")
+    order_interval = await params.get_param("order_interval")
+    order_interval = int(order_interval)
+    max_order = await params.get_param("max_order")
+    enable_close_position = await params.get_param("close_position")
+    enable_close_open_orders = await params.get_param("close_open_orders")
 
-    keepalive = 60*50
+    await logger.info("Regular Order Interval: {}".format(order_interval))
+    await asyncio.sleep(5)
     timer = time.time()
+    while True:
+        if err.status:
+            await logger.err("regular_order_stream: terminated")
+            if enable_close_open_orders:
+                await cancel_all_orders(client, symbol, logger, err, orderbook, params)
+            if enable_close_position:
+                await close_position(client, symbol, logger, err, orderbook, params)
+            break
+        if time.time() - timer > order_interval or len(await params.get_param("regular_orders")) < max_order:
+            await cancel_all_unfilled_orders(client, symbol, logger, err, orderbook, params)
+            best_bid = await orderbook.get('bid')
+            best_ask = await orderbook.get('ask')
+            amount = await orderbook.get("amount")
+            precision = await orderbook.get('precision')
 
-    price_timer = time.time()
+            # calculate bid/ask depending on the other indicators
+            # end
 
-    async with bsm._get_socket(orderboom_stream)as stream:
-        while True:
-            if time.time() - timer > keep_alive:
-                keep_alive = time.time()
-                listen_key = await stream.get_listen_key()
-                res = await client.keep_alive(listen_key)
-                logger.info(
-                    "Keep alive: {}, Listen Key: {}".format(res, listen_key))
-            if err.status:
-                await stream.close()
-                await bsm.stop()
-                await logger.err("market_data_socket: socket closed")
-                break
-            try:
-                res = await stream.recv()
-            except Exception as e:
-                await logger.err("market_data_socket: {}".format(e))
-                continue
-            else:
-                if 'stream' in res and res['stream'] == orderboom_stream and 'data' in res:
-                    data = res['data']
-                    bid, ask = float(data['b']), float(data['a'])
-
-                    temp_orderbook = {'bid': bid, 'ask': ask}
-                    if price_timer+1 <= time.time():
-                        # further indicator calculation
-                        price_timer = time.time()
-                    orderbook.updates(temp_orderbook)
-                elif res['e'] == 'error':
-                    await logger.err("market_data_socket: {}".format(res))
-                    err.status = True
-        print("market_data_socket: socket closed")
+            await logger.info("Regular Order: best_bid: {}, best_ask: {}".format(best_bid, best_ask))
+            # BID
+            await execute_order(
+                client,
+                symbol,
+                BUY,
+                LIMIT,
+                amount,
+                best_bid,
+                precision,
+                BID
+            )
+            # ASK
+            await execute_order(
+                client,
+                symbol,
+                SELL,
+                LIMIT,
+                amount,
+                best_ask,
+                precision,
+                ASK
+            )
+            timer = time.time()
+        await asyncio.sleep(1)
+    await logger.info("regular_order_stream: terminated")
