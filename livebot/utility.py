@@ -1,5 +1,5 @@
 import asyncio
-from binance.client import Client
+from binance.client import AsyncClient
 from pathlib import Path
 
 
@@ -8,7 +8,7 @@ def make_path(path):
 
 
 async def create_client(api_key, api_secret, url):
-    client = await Client(api_key, api_secret)
+    client = await AsyncClient(api_key, api_secret)
     client.API_URL = url
     return client
 
@@ -30,3 +30,19 @@ async def get_precision(tick):
     else:
         precision = []
     return len(precision)
+
+
+async def get_account_future_position(self, client):
+    positions = await client.futures_position_information()
+    unpnl = {}
+    total_unpnl = 0
+    order_size = {}
+
+    for pos in positions:
+        size = float(pos["positionAmt"])
+        if size != 0:
+            symbol = pos["symbol"]
+            unpnl[symbol] = float(pos["unrealizedPnl"])
+            total_unpnl += unpnl[symbol]
+            order_size[symbol] = size
+    return unpnl, total_unpnl, order_size
