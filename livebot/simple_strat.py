@@ -1,10 +1,13 @@
 from cmath import log
 from binance.client import Client
 from binance import BinanceSocketManager
-from sympy import re
+from pytest import param
+from sympy import re, symbols
 
 from data_structure.orderbook import Orderbook
 from data_structure.client_params import ClientParams
+from logger import Logger
+from utility import *
 
 import asyncio
 import time
@@ -16,12 +19,6 @@ LIMIT = 'LIMIT'
 MARKET = 'MARKET'
 BID = 'bid'
 ASK = 'ask'
-
-
-async def create_client(api_key, api_secret, url):
-    client = await Client(api_key, api_secret)
-    client.API_URL = url
-    return client
 
 
 async def execute_order(
@@ -276,6 +273,49 @@ async def order_filled_socket(client, symbol, logger, err, orderbook, params):
         logger.info("order_filled_socket: socket closed")
 
 
+async def market_data_socket(client, symbol, logger, err, orderbook):
+    bsm = BinanceSocketManager(client)
+    orderboom_stream = symbol.lower()+'@bookTicker'
+
+    keepalive = 60*50
+    timer = time.time()
+
+    price_timer = time.time()
+
+    async with bsm._get_socket(orderboom_stream)as stream:
+        while True:
+            if time.time() - timer > keep_alive:
+                keep_alive = time.time()
+                listen_key = await stream.get_listen_key()
+                res = await client.keep_alive(listen_key)
+                logger.info(
+                    "Keep alive: {}, Listen Key: {}".format(res, listen_key))
+            if err.status:
+                await stream.close()
+                await bsm.stop()
+                await logger.err("market_data_socket: socket closed")
+                break
+            try:
+                res = await stream.recv()
+            except Exception as e:
+                await logger.err("market_data_socket: {}".format(e))
+                continue
+            else:
+                if 'stream' in res and res['stream'] == orderboom_stream and 'data' in res:
+                    data = res['data']
+                    bid, ask = float(res['b']), float(res['a'])
+
+                    temp_orderbook = {'bid': bid, 'ask': ask}
+                    if price_timer+1 <= time.time():
+                        # further indicator calculation
+                        price_timer = time.time()
+                    orderbook.updates(temp_orderbook)
+                elif res['e'] == 'error':
+                    await logger.err("market_data_socket: {}".format(res))
+                    err.status = True
+        print("market_data_socket: socket closed")
+
+
 async def regular_order_stream(client, symbol, logger, err, orderbook, params):
     await logger.info("regular_order_stream: started")
     order_interval = await params.get_param("order_interval")
@@ -331,3 +371,93 @@ async def regular_order_stream(client, symbol, logger, err, orderbook, params):
             timer = time.time()
         await asyncio.sleep(1)
     await logger.info("regular_order_stream: terminated")
+
+
+class Error:
+    def __init__(self):
+        self.status = False
+        self.message = ""
+        self.code = ""
+        self.data = ""
+
+
+async def run_strat(symbol, api_key, api_secret, url, init_amount, order_interval):
+    client = await create_client(api_key, api_secret, url)
+
+    # Check valid symbol
+    market_info = await client.get_exchange_info()
+
+    symbol_data = {}
+    for sym in market_info["symbols"]:
+        if sym['symbol'] == symbol:
+            symbol_data = sym
+            break
+    if symbol_data == {}:
+        print("Invalid symbol")
+        await client.close()
+    else:
+        tick = float(symbol_data["fillter"][0]["tickSize"])
+        precision = await get_precision(tick)
+        quantityPrecision = int(symbol_data["quantityPrecision"])
+
+        current_ticker = await client.get_symbol_ticker(symbol=symbol)
+        cur_price = float(current_ticker["price"])
+
+        amount = round(init_amount/cur_price, quantityPrecision)
+
+        logger = Logger('simple_strat', symbol)
+
+        err = Error()
+
+        # Fake orderbook
+        orderbook = Orderbook(["bid", "ask"], logger)
+
+        temp_params = {
+            'regular_orders': set([]),
+            'take_profit_orders': {},
+            'stoploss_orders': {},
+            'order_interval': order_interval,
+            'max_order': 2,
+            'close_position': True,
+            'close_open_orders': True,
+            'posAmt': 0,
+            'pnl': 0,
+        }
+        params = ClientParams([], logger)
+        params.set(params=temp_params)
+
+        event_loop = asyncio.get_event_loop()
+        events = [
+            asyncio.Task(regular_order_stream(client, symbol,
+                         logger, err, params, orderbook, params)),
+            asyncio.Task(order_filled_socket(
+                client, symbol, logger, err, orderbook, params)),
+            asyncio.Task(market_data_socket(
+                client, symbol, logger, err, orderbook, params)),
+        ]
+        await event_loop.run_until_complete(asyncio.gather(*events))
+        await client.close()
+        await logger.info("run_strat: terminated")
+
+if __name__ == '__main__':
+    config_keywords = set(
+        ['symbol', 'api_key', 'api_secret', 'url', 'init_amount', 'order_interval'])
+    config_ini = 'config.ini'
+    param = {}
+    with open(config_ini, 'r') as f:
+        for line in f:
+            key, value = line.split(',')
+            if key in config_keywords:
+                param[key] = value.strip('\n')
+                config_keywords.remove(key)
+    if len(config_keywords) > 0:
+        print("Missing config keywords: {}".format(config_keywords))
+        exit(1)
+    symbol = param['symbol']
+    api_key = param['api_key']
+    api_secret = param['api_secret']
+    url = param['url']
+    init_amount = float(param['init_amount'])
+    order_interval = int(param['order_interval'])
+    asyncio.run(run_strat(symbol, api_key, api_secret,
+                url, init_amount, order_interval))
