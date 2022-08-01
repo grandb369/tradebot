@@ -81,6 +81,7 @@ async def send_take_profit_order(client, symbol, logger, err, orderbook, params,
             price=tp_price,
             precision=precision,
             params=params,
+            logger=logger,
             is_take_profit_order=True,
             pre_order_id=order_id
         )
@@ -95,6 +96,7 @@ async def send_take_profit_order(client, symbol, logger, err, orderbook, params,
             price=tp_price,
             precision=precision,
             params=params,
+            logger=logger,
             is_take_profit_order=True,
             pre_order_id=order_id
         )
@@ -114,6 +116,7 @@ async def send_stop_loss_order(client, symbol, logger, err, orderbook, params, o
             price=sl_price,
             precision=precision,
             params=params,
+            logger=logger,
             is_stop_loss_order=True,
             pre_order_id=order_id
         )
@@ -128,6 +131,7 @@ async def send_stop_loss_order(client, symbol, logger, err, orderbook, params, o
             price=sl_price,
             precision=precision,
             params=params,
+            logger=logger,
             is_stop_loss_order=True,
             pre_order_id=order_id
         )
