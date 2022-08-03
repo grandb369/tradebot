@@ -1,6 +1,6 @@
 from cmath import log
 from binance.client import Client
-from binance import BinanceSocketManager
+from binance.streams import BinanceSocketManager
 from pytest import param
 from sympy import re, symbols
 
@@ -184,7 +184,7 @@ async def cancel_all_unfilled_orders(client, symbol, logger, params):
 
 
 async def close_open_orders(client, symbol, logger, params):
-    orders = await client.futures_get_open_orders(symbol=symbol)
+    orders = await client.get_open_orders(symbol=symbol)
     for order in orders:
         if order["status"] == "NEW" or order["status"] == "PARTIALLY_FILLED":
             try:
@@ -194,13 +194,6 @@ async def close_open_orders(client, symbol, logger, params):
     await params.update_param("regular_orders", set())
     await params.update_param("stoploss_orders", {})
     await params.update_param("take_profit_orders", {})
-
-
-async def close_position(client, symbol, logger, params):
-    position = await client.get_position(symbol=symbol)
-    if position:
-        await client.close_position(symbol=symbol)
-        await logger.info("Closed position: {}".format(position["id"]))
 
 
 async def order_filled_socket(client, symbol, logger, err, orderbook, params):
@@ -286,7 +279,7 @@ async def market_data_socket(client, symbol, logger, err, orderbook):
 
     price_timer = time.time()
 
-    async with bsm._get_socket(orderboom_stream)as stream:
+    async with bsm.symbol_ticker_socket(symbol)as stream:
         while True:
             if time.time() - timer > keep_alive:
                 keep_alive = time.time()

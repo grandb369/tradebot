@@ -4,11 +4,12 @@ from utility import make_path
 
 
 class Logger:
-    def __init__(self, path, name):
+    def __init__(self, path, name, varbose=True):
         self.folder = 'logs'
         self.path = self.folder + '/' + path
         self.name = name
         self.time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        self.varbose = varbose
 
     def get_time(self):
         self.time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -20,8 +21,12 @@ class Logger:
         self.get_time()
         with open(self.path + '/' + self.name + '_' + self.date + '.log', 'a') as f:
             f.write(self.time + ', INFO: ' + message + '\n')
+            if self.varbose:
+                print(message)
 
     async def error(self, message):
         self.get_time()
         with open(self.path + '/' + self.name + '_' + self.date + '.log', 'a') as f:
             f.write(self.time + ', ERROR: ' + message + '\n')
+            if self.varbose:
+                print(message)
